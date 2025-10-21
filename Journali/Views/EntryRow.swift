@@ -2,35 +2,72 @@
 //  EntryRow.swift
 //  Journali
 //
-//  Created by Najd Alsabi on 29/04/1447 AH.
+//  Created by Najd Alsabi on 28/04/1447 AH.
 //
 
 import SwiftUI
+import SwiftData
 
 struct EntryRow: View {
-    let entry: Entry
+    @Bindable var entry: Entry
+    var onToggleBookmark: (() -> Void)?   // ✅ callback to toggle from RootView
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(entry.title.isEmpty ? "Untitled" : entry.title)
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    // Title
+                    Text(entry.title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundColor(Color("Purple"))
+
+                    // Date (formatted as 21/10/2025)
+                    Text(entry.updatedAt.formatted(
+                        Date.FormatStyle()
+                            .day(.twoDigits)
+                            .month(.twoDigits)
+                            .year(.defaultDigits)
+                            .locale(Locale(identifier: "en_GB"))
+                    ))
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .padding(.top, -2)
+
+                    // Body preview
+                    Text(entry.body)
+                        .font(.body)
+                        .foregroundColor(Color("white"))
+                        .padding(.top, 4)
+                }
+
                 Spacer()
-                Image(systemName: entry.isBookmarked ? "bookmark.fill" : "bookmark")
-                    .foregroundStyle(entry.isBookmarked ? Color("Purple") : .secondary)
+
+                // ✅ Make bookmark icon tappable
+                Button {
+                    onToggleBookmark?()
+                } label: {
+                    Image(systemName: entry.isBookmarked ? "bookmark.fill" : "bookmark")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Color("Purple"))
+                        .padding(.top, 4)
+                }
+                .buttonStyle(.plain)
             }
-            Text(entry.body.isEmpty ? "No content" : entry.body)
-                .lineLimit(3)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                Text(entry.updatedAt, style: .date)
-                Text("·")
-                Text(entry.updatedAt, style: .time)
-            }
-            .font(.caption)
-            .foregroundStyle(.tertiary)
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color(uiColor: .secondarySystemBackground)))
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.white.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.white.opacity(0.05))
+        )
+        .padding(.horizontal, 4)
     }
+}
+
+#Preview {
+    EntryRow(entry: Entry(title: "My Birthday", body: "Lorem ipsum dolor sit amet.")) { }
+        .preferredColorScheme(.dark)
 }

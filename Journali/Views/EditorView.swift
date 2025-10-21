@@ -6,91 +6,111 @@
 //
 
 import SwiftUI
-import SwiftData
 
 struct EditorView: View {
-    enum Mode { case create, edit(Entry) }
+    enum Mode {
+        case create, edit(Entry)
+    }
 
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var context
-
-    let mode: Mode
+    var mode: Mode
     var onSave: (String, String) -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @State private var title: String = ""
     @State private var bodyText: String = ""
-    @State private var isBookmarked: Bool = false
-    @State private var showDiscardConfirm = false
-
-    init(mode: Mode, onSave: @escaping (String, String) -> Void) {
-        self.mode = mode
-        self.onSave = onSave
-    }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                TextField("Title", text: $title)
-                    .font(.title2).bold()
-                    .padding(.horizontal)
-                TextEditor(text: $bodyText)
-                    .padding(.horizontal)
-                    .scrollContentBackground(.hidden)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .background(Color.black.opacity(0.96).ignoresSafeArea())
-            .toolbar { editorToolbar }
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .onAppear { loadIfNeeded() }
-        .confirmationDialog("Are you sure you want to discard changes?", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
-            Button("Discard Changes", role: .destructive) { dismiss() }
-            Button("Keep Editing", role: .cancel) { }
-        }
-    }
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-    private func loadIfNeeded() {
-        if case let .edit(entry) = mode {
-            title = entry.title
-            bodyText = entry.body
-            isBookmarked = entry.isBookmarked
-        }
-    }
+            VStack(alignment: .leading, spacing: 16) {
 
-    @ToolbarContentBuilder
-    private var editorToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button { if hasUnsavedChanges { showDiscardConfirm = true } else { dismiss() } } label: {
-                Image(systemName: "xmark")
-            }
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                onSave(title.trimmed(), bodyText.trimmed())
-                dismiss()
-            } label: {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12).fill(Color("Purple")).frame(width: 74, height: 34)
-                    HStack(spacing: 6) {
-                        Image("Button").resizable().scaledToFit().frame(width: 16, height: 16)
-                        Text("Save").font(.subheadline).fontWeight(.semibold)
+                // MARK: - Top bar
+                HStack {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(Color.white.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+
+                    Spacer()
+
+                    Button {
+                        if !title.isEmpty {
+                            onSave(title, bodyText)
+                            dismiss()
+                        }
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 44, height: 44)
+                            .background(Color("Button"))
+                            .clipShape(Circle())
                     }
                 }
-            }
-            .disabled(title.trimmed().isEmpty && bodyText.trimmed().isEmpty)
-        }
-        ToolbarItemGroup(placement: .keyboard) {
-            Spacer()
-            Button("Done") { hideKeyboard() }
-        }
-    }
+                .padding(.horizontal)
+                .padding(.top, 8)
 
-    private var hasUnsavedChanges: Bool {
-        switch mode {
-        case .create:
-            return !(title.isEmpty && bodyText.isEmpty)
-        case .edit(let entry):
-            return title != entry.title || bodyText != entry.body || isBookmarked != entry.isBookmarked
+                // MARK: - Title field
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Title", text: $title)
+                        .font(.title2.bold())
+                        .foregroundColor(.white)
+                        .padding(.horizontal)
+                        .overlay(
+                            Rectangle()
+                                .fill(Color.clear)
+                                .frame(height: 2)
+                                .padding(.horizontal),
+                            alignment: .bottom
+                        )
+
+                    Text(Date.now.formatted(date: .numeric, time: .omitted))
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                        .padding(.horizontal)
+                }
+
+                // MARK: - Body text
+                TextEditor(text: $bodyText)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .foregroundColor(.white)
+                    .font(.body)
+                    .frame(maxHeight: .infinity)
+                    .padding(.horizontal)
+                    .overlay(
+                        Group {
+                            if bodyText.isEmpty {
+                                Text("Type your Journal...")
+                                    .foregroundColor(.gray)
+                                    .padding(.horizontal, 20)
+                                    .padding(.top, 12)
+                                    .allowsHitTesting(false)
+                            }
+                        },
+                        alignment: .topLeading
+                    )
+
+                Spacer()
+            }
+        }
+        .onAppear {
+            if case .edit(let entry) = mode {
+                title = entry.title
+                bodyText = entry.body
+            }
         }
     }
+}
+
+#Preview {
+    EditorView(mode: .create) { _, _ in }
+        .preferredColorScheme(.dark)
 }
