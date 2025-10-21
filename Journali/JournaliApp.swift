@@ -6,12 +6,16 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct JournaliApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            SplashView() // Main UI
+                .preferredColorScheme(.dark)
         }
+        .modelContainer(for: Entry.self) // SwiftData persistence
     }
 }
+
