@@ -15,12 +15,16 @@ struct RootView: View {
     @State private var filter: Filter = .all
     @State private var showComposer = false
 
+    // Alert handling
+    @State private var showDeleteAlert = false
+    @State private var entryToDelete: Entry?
+
     enum Filter: String, CaseIterable, Identifiable {
         case all, bookmarked
         var id: Self { self }
     }
 
-    // Filtered entries based on search and bookmark status
+    // MARK: - Filtered entries
     private var filtered: [Entry] {
         var base = entries
         if filter == .bookmarked { base = base.filter { $0.isBookmarked } }
@@ -31,6 +35,7 @@ struct RootView: View {
         return base
     }
 
+    // MARK: - Body
     var body: some View {
         NavigationStack {
             ZStack {
@@ -85,25 +90,14 @@ struct RootView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         ScrollView {
-                            VStack(spacing: 20) {
+                            LazyVStack(spacing: 20) {
                                 ForEach(filtered) { entry in
-                                    EntryRow(entry: entry) {
-                                        toggleBookmark(entry) // ✅ tap-to-bookmark
-                                    }
-                                    .contextMenu {
-                                        Button(role: .destructive) {
-                                            delete(entry)
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
-
-                                        Button {
-                                            toggleBookmark(entry)
-                                        } label: {
-                                            Label(
-                                                entry.isBookmarked ? "Unbookmark" : "Bookmark",
-                                                systemImage: entry.isBookmarked ? "bookmark.slash" : "bookmark"
-                                            )
+                                    SwipeToDeleteRow(entry: entry) {
+                                        toggleBookmark(entry)
+                                    } onDelete: {
+                                        entryToDelete = entry
+                                        withAnimation(.spring()) {
+                                            showDeleteAlert = true
                                         }
                                     }
                                 }
@@ -130,7 +124,73 @@ struct RootView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 12)
                 }
+
+                // MARK: - Custom Delete Confirmation Overlay
+                if let entry = entryToDelete, showDeleteAlert {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                        .onTapGesture {
+                            withAnimation {
+                                showDeleteAlert = false
+                            }
+                        }
+
+                    VStack(spacing: 16) {
+                        Text("Delete Journal?")
+                            .font(.headline.bold())
+                            .foregroundColor(.white)
+
+                        Text("Are you sure you want to delete this journal?")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.leading)
+                            .padding(.horizontal)
+
+                        HStack(spacing: 16) {
+                            Button {
+                                withAnimation {
+                                    showDeleteAlert = false
+                                }
+                            } label: {
+                                Text("Cancel")
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.white)
+                                    .frame(minWidth: 132)
+                                    .padding(.vertical, 14)
+                                    .padding(.horizontal,6)
+                                    .background(Color.gray.opacity(0.3))
+                                    .cornerRadius(120)
+                            }
+
+                            Button {
+                                withAnimation {
+                                    showDeleteAlert = false
+                                }
+                                delete(entry)
+                            } label: {
+                                Text("Delete")
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.white)
+                                    .frame(minWidth: 132)
+                                    .padding(.vertical, 14)
+                                    .padding(.horizontal,6)
+                                    .background(Color.red)
+                                    .cornerRadius(120)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .padding()
+                    .background(Color(.systemGray6).opacity(0.15))
+                    .cornerRadius(20)
+                    .shadow(radius: 20)
+                    .padding(.horizontal, 40)
+                    .transition(.scale)
+                }
             }
+            .animation(.spring(), value: showDeleteAlert)
+            // MARK: - Composer Sheet
             .sheet(isPresented: $showComposer) {
                 EditorView(mode: .create) { title, body in
                     let e = Entry(title: title, body: body)
@@ -142,9 +202,10 @@ struct RootView: View {
     }
 
     // MARK: - Helper functions
-
     private func delete(_ entry: Entry) {
-        withAnimation { context.delete(entry) }
+        withAnimation {
+            context.delete(entry)
+        }
         try? context.save()
     }
 
@@ -159,4 +220,64 @@ struct RootView: View {
     RootView()
         .modelContainer(for: Entry.self, inMemory: true)
         .preferredColorScheme(.dark)
+}
+
+// MARK: - SwipeToDeleteRow (Hidden red circle until swipe)
+struct SwipeToDeleteRow: View {
+    @State private var offsetX: CGFloat = 0
+    @GestureState private var dragOffset: CGFloat = 0
+
+    var entry: Entry
+    var onToggleBookmark: () -> Void
+    var onDelete: () -> Void
+
+    var body: some View {
+        ZStack {
+            // Background delete button (hidden until swipe)
+            HStack {
+                Spacer()
+                Button(action: onDelete) {
+                    ZStack {
+                        Circle()
+                            .fill(Color(.systemRed))
+                            .frame(width: 55, height: 55)
+                            .shadow(color: Color(.systemRed).opacity(0.4),
+                                    radius: 6, x: 0, y: 3)
+                        Image(systemName: "trash.fill")
+                            .foregroundColor(.white)
+                            .font(.system(size: 20, weight: .bold))
+                    }
+                }
+                .offset(x: offsetX < 0 ? 0 : 80)
+                .opacity(offsetX < 0 ? 1 : 0)
+                .animation(.easeInOut(duration: 0.2), value: offsetX)
+            }
+
+            // Foreground journal card
+            EntryRow(entry: entry, onToggleBookmark: onToggleBookmark)
+                .offset(x: offsetX + dragOffset)
+                .gesture(
+                    DragGesture()
+                        .updating($dragOffset) { value, state, _ in
+                            if value.translation.width < 0 {
+                                state = value.translation.width
+                            }
+                        }
+                        .onEnded { value in
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                                if value.translation.width < -80 {
+                                    offsetX = -80
+                                } else {
+                                    offsetX = 0
+                                }
+                            }
+                        }
+                )
+                .onTapGesture {
+                    withAnimation {
+                        offsetX = 0
+                    }
+                }
+        }
+    }
 }
