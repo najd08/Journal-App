@@ -8,14 +8,13 @@
 import SwiftUI
 import SwiftData
 
+// MARK: - Main View
 struct RootView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: [SortDescriptor<Entry>(\.updatedAt, order: .reverse)]) private var entries: [Entry]
     @State private var query: String = ""
     @State private var filter: Filter = .all
     @State private var showComposer = false
-
-    // Alert handling
     @State private var showDeleteAlert = false
     @State private var entryToDelete: Entry?
 
@@ -24,173 +23,32 @@ struct RootView: View {
         var id: Self { self }
     }
 
-    // MARK: - Filtered entries
     private var filtered: [Entry] {
         var base = entries
         if filter == .bookmarked { base = base.filter { $0.isBookmarked } }
-        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let q = query.lowercased()
             base = base.filter { $0.title.lowercased().contains(q) || $0.body.lowercased().contains(q) }
         }
         return base
     }
 
-    // MARK: - Body
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
 
                 VStack {
-                    // MARK: - Header
-                    HStack {
-                        Text("Journal")
-                            .font(.largeTitle.bold())
-                            .foregroundColor(.white)
-
-                        Spacer()
-
-                        HStack(spacing: 18) {
-                            FilterToggle(filter: $filter)
-
-                            Rectangle()
-                                .fill(Color.white.opacity(0.25))
-                                .frame(width: 1, height: 20)
-
-                            Button {
-                                showComposer = true
-                            } label: {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(.white)
-                            }
-                        }
-                        .padding(.horizontal, 18)
-                        .frame(height: 44)
-                        .background(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.08), Color.white.opacity(0.03)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 25, style: .continuous)
-                                .stroke(Color.white.opacity(0.1), lineWidth: 0.8)
-                        )
-                        .shadow(color: .black.opacity(0.6), radius: 4, x: 0, y: 2)
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 16)
-
-                    // MARK: - Content
-                    if filtered.isEmpty {
-                        EmptyState(startAction: { showComposer = true })
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        ScrollView {
-                            LazyVStack(spacing: 20) {
-                                ForEach(filtered) { entry in
-                                    SwipeToDeleteRow(entry: entry) {
-                                        toggleBookmark(entry)
-                                    } onDelete: {
-                                        entryToDelete = entry
-                                        withAnimation(.spring()) {
-                                            showDeleteAlert = true
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.horizontal)
-                            .padding(.top, 8)
-                        }
-                    }
-
-                    // MARK: - Search Bar
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.gray)
-                        TextField("Search", text: $query)
-                            .foregroundColor(.white)
-                            .textInputAutocapitalization(.never)
-                        Image(systemName: "mic.fill")
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 44)
-                    .background(Color(.systemGray6).opacity(0.15))
-                    .cornerRadius(22)
-                    .padding(.horizontal)
-                    .padding(.bottom, 12)
+                    headerView
+                    contentView
+                    searchBar
                 }
 
-                // MARK: - Custom Delete Confirmation Overlay
                 if let entry = entryToDelete, showDeleteAlert {
-                    Color.black.opacity(0.4)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-                        .onTapGesture {
-                            withAnimation {
-                                showDeleteAlert = false
-                            }
-                        }
-
-                    VStack(spacing: 16) {
-                        Text("Delete Journal?")
-                            .font(.headline.bold())
-                            .foregroundColor(.white)
-
-                        Text("Are you sure you want to delete this journal?")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                            .multilineTextAlignment(.leading)
-                            .padding(.horizontal)
-
-                        HStack(spacing: 16) {
-                            Button {
-                                withAnimation {
-                                    showDeleteAlert = false
-                                }
-                            } label: {
-                                Text("Cancel")
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.white)
-                                    .frame(minWidth: 132)
-                                    .padding(.vertical, 14)
-                                    .padding(.horizontal,6)
-                                    .background(Color.gray.opacity(0.3))
-                                    .cornerRadius(120)
-                            }
-
-                            Button {
-                                withAnimation {
-                                    showDeleteAlert = false
-                                }
-                                delete(entry)
-                            } label: {
-                                Text("Delete")
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.white)
-                                    .frame(minWidth: 132)
-                                    .padding(.vertical, 14)
-                                    .padding(.horizontal,6)
-                                    .background(Color.red)
-                                    .cornerRadius(120)
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                    .padding()
-                    .background(Color(.systemGray6).opacity(0.15))
-                    .cornerRadius(20)
-                    .shadow(radius: 20)
-                    .padding(.horizontal, 40)
-                    .transition(.scale)
+                    deleteOverlay(for: entry)
                 }
             }
             .animation(.spring(), value: showDeleteAlert)
-            // MARK: - Composer Sheet
             .sheet(isPresented: $showComposer) {
                 EditorView(mode: .create) { title, body in
                     let e = Entry(title: title, body: body)
@@ -200,29 +58,347 @@ struct RootView: View {
             }
         }
     }
+}
 
-    // MARK: - Helper functions
-    private func delete(_ entry: Entry) {
-        withAnimation {
-            context.delete(entry)
+// MARK: - Header
+private extension RootView {
+    var headerView: some View {
+        HStack {
+            Text("Journal")
+                .font(.largeTitle.bold())
+                .foregroundColor(.white)
+
+            Spacer()
+
+            HStack(spacing: 18) {
+                FilterToggle(filter: $filter)
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.25))
+                    .frame(width: 1, height: 20)
+
+                Button {
+                    showComposer = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 44)
+            .modifier(GlassCapsuleModifier())
         }
+        .padding(.horizontal)
+        .padding(.top, 16)
+    }
+}
+
+// MARK: - Content
+private extension RootView {
+    var contentView: some View {
+        Group {
+            if filtered.isEmpty {
+                EmptyState(startAction: { showComposer = true })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 20) {
+                        ForEach(filtered) { entry in
+                            SwipeToDeleteRow(entry: entry) {
+                                toggleBookmark(entry)
+                            } onDelete: {
+                                entryToDelete = entry
+                                withAnimation(.spring()) {
+                                    showDeleteAlert = true
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Search Bar
+private extension RootView {
+    var searchBar: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(.white.opacity(0.65))
+
+            TextField("Search", text: $query)
+                .foregroundStyle(.white)
+                .accentColor(.white.opacity(0.9))
+                .textInputAutocapitalization(.never)
+                .placeholder(when: query.isEmpty) {
+                    Text("Search").foregroundStyle(.white.opacity(0.55))
+                }
+
+            Image(systemName: "mic.fill")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(.white.opacity(0.65))
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .modifier(GlassSearchBarModifier())
+        .padding(.horizontal)
+        .padding(.bottom, 12)
+    }
+}
+
+// MARK: - Delete Overlay
+private extension RootView {
+    func deleteOverlay(for entry: Entry) -> some View {
+        ZStack {
+            // Dimmed background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation { showDeleteAlert = false }
+                }
+
+            VStack(alignment: .leading, spacing: 18) {
+                // Title
+                Text("Delete Journal?")
+                    .font(.headline.bold())
+                    .foregroundColor(.white)
+
+                // Subtitle
+                Text("Are you sure you want to delete this journal?")
+                    .font(.subheadline)
+                    .foregroundColor(Color("Gray"))
+                    .multilineTextAlignment(.leading)
+                    .padding(.top, -7)
+                    .padding(.bottom,5)
+
+                // Buttons
+                HStack(spacing: 14) {
+                    Button {
+                        withAnimation { showDeleteAlert = false }
+                    } label: {
+                        Text("Cancel")
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(50)
+                    }
+
+                    Button {
+                        withAnimation { showDeleteAlert = false }
+                        delete(entry)
+                    } label: {
+                        Text("Delete")
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color("Red"))
+                            .cornerRadius(50)
+                    }
+                }
+            }
+            .padding(25)
+            .frame(maxWidth: 320)
+            .background(
+                RoundedRectangle(cornerRadius: 40, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.08),
+                                Color.white.opacity(0.02)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .background(Color.black.opacity(0.4).blur(radius: 8))
+            )
+            // Soft highlight rim
+            .overlay(
+                RoundedRectangle(cornerRadius: 40, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.4),
+                                Color.white.opacity(0.1)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.8
+                    )
+            )
+            // Gentle shadow
+            .shadow(color: .black.opacity(0.5), radius: 10, x: 0, y: 3)
+            .transition(.scale)
+        }
+    }
+}
+
+
+
+// MARK: - Helper functions
+private extension RootView {
+    func delete(_ entry: Entry) {
+        withAnimation { context.delete(entry) }
         try? context.save()
     }
 
-    private func toggleBookmark(_ entry: Entry) {
+    func toggleBookmark(_ entry: Entry) {
         entry.isBookmarked.toggle()
         entry.updatedAt = .now
         try? context.save()
     }
 }
 
+// MARK: - Preview
 #Preview {
     RootView()
         .modelContainer(for: Entry.self, inMemory: true)
         .preferredColorScheme(.dark)
 }
 
-// MARK: - SwipeToDeleteRow (Hidden red circle until swipe)
+// MARK: - Glass Capsule Modifier
+struct GlassCapsuleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: 25, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.08),
+                                Color.white.opacity(0.02)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .background(
+                        Color.black.opacity(0.4)
+                            .blur(radius: 8)
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 25, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.4),
+                                Color.white.opacity(0.1)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.8
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 25, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.25),
+                                .clear
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.2
+                    )
+                    .blur(radius: 0.5)
+            )
+            .shadow(color: .black.opacity(0.6), radius: 10, x: 0, y: 2)
+            .overlay(
+                RoundedRectangle(cornerRadius: 25, style: .continuous)
+                    .stroke(Color.white.opacity(0.05), lineWidth: 0.5)
+                    .blur(radius: 0.8)
+            )
+    }
+}
+
+// MARK: - Glass Search Bar Modifier (Same as Capsule)
+struct GlassSearchBarModifier: ViewModifier {
+    private let r: CGFloat = 22
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: r, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.08),
+                                Color.white.opacity(0.02)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .background(
+                        Color.black.opacity(0.4)
+                            .blur(radius: 8)
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: r, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.4),
+                                Color.white.opacity(0.1)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.8
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: r, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.25),
+                                .clear
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.2
+                    )
+                    .blur(radius: 0.5)
+            )
+            .shadow(color: .black.opacity(0.6), radius: 10, x: 0, y: 2)
+            .overlay(
+                RoundedRectangle(cornerRadius: r, style: .continuous)
+                    .stroke(Color.white.opacity(0.05), lineWidth: 0.5)
+                    .blur(radius: 0.8)
+            )
+    }
+}
+
+// MARK: - Placeholder Helper
+extension View {
+    @ViewBuilder func placeholder<Content: View>(
+        when shouldShow: Bool,
+        @ViewBuilder _ placeholder: () -> Content
+    ) -> some View {
+        ZStack(alignment: .leading) {
+            if shouldShow { placeholder() }
+            self
+        }
+    }
+}
+
+// MARK: - SwipeToDeleteRow
 struct SwipeToDeleteRow: View {
     @State private var offsetX: CGFloat = 0
     @GestureState private var dragOffset: CGFloat = 0
@@ -233,7 +409,6 @@ struct SwipeToDeleteRow: View {
 
     var body: some View {
         ZStack {
-            // Background delete button (hidden until swipe)
             HStack {
                 Spacer()
                 Button(action: onDelete) {
@@ -241,8 +416,7 @@ struct SwipeToDeleteRow: View {
                         Circle()
                             .fill(Color(.systemRed))
                             .frame(width: 55, height: 55)
-                            .shadow(color: Color(.systemRed).opacity(0.4),
-                                    radius: 6, x: 0, y: 3)
+                            .shadow(color: Color(.systemRed).opacity(0.4), radius: 6, x: 0, y: 3)
                         Image(systemName: "trash.fill")
                             .foregroundColor(.white)
                             .font(.system(size: 20, weight: .bold))
@@ -253,7 +427,6 @@ struct SwipeToDeleteRow: View {
                 .animation(.easeInOut(duration: 0.2), value: offsetX)
             }
 
-            // Foreground journal card
             EntryRow(entry: entry, onToggleBookmark: onToggleBookmark)
                 .offset(x: offsetX + dragOffset)
                 .gesture(
@@ -265,19 +438,11 @@ struct SwipeToDeleteRow: View {
                         }
                         .onEnded { value in
                             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                if value.translation.width < -80 {
-                                    offsetX = -80
-                                } else {
-                                    offsetX = 0
-                                }
+                                offsetX = value.translation.width < -80 ? -80 : 0
                             }
                         }
                 )
-                .onTapGesture {
-                    withAnimation {
-                        offsetX = 0
-                    }
-                }
+                .onTapGesture { withAnimation { offsetX = 0 } }
         }
     }
 }
