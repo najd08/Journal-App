@@ -17,6 +17,8 @@ struct RootView: View {
     @State private var showComposer = false
     @State private var showDeleteAlert = false
     @State private var entryToDelete: Entry?
+    @State private var entryToEdit: Entry?          // ✅ used by .sheet(item:)
+    @State private var showEditor = false           // kept for your state
 
     enum Filter: String, CaseIterable, Identifiable {
         case all, bookmarked
@@ -49,10 +51,22 @@ struct RootView: View {
                 }
             }
             .animation(.spring(), value: showDeleteAlert)
+
+            // Create sheet
             .sheet(isPresented: $showComposer) {
                 EditorView(mode: .create) { title, body in
                     let e = Entry(title: title, body: body)
                     context.insert(e)
+                    try? context.save()
+                }
+            }
+
+            // Edit sheet (reliable)
+            .sheet(item: $entryToEdit) { entry in
+                EditorView(mode: .edit(entry)) { title, body in
+                    entry.title = title
+                    entry.body = body
+                    entry.updatedAt = .now
                     try? context.save()
                 }
             }
@@ -105,14 +119,20 @@ private extension RootView {
                 ScrollView {
                     LazyVStack(spacing: 20) {
                         ForEach(filtered) { entry in
-                            SwipeToDeleteRow(entry: entry) {
-                                toggleBookmark(entry)
-                            } onDelete: {
-                                entryToDelete = entry
-                                withAnimation(.spring()) {
-                                    showDeleteAlert = true
+                            SwipeToDeleteRow(
+                                entry: entry,
+                                onToggleBookmark: { toggleBookmark(entry) },
+                                onDelete: {
+                                    entryToDelete = entry
+                                    withAnimation(.spring()) {
+                                        showDeleteAlert = true
+                                    }
+                                },
+                                onTap: {                      // ✅ tap comes from inside the row
+                                    entryToEdit = entry
+                                    showEditor = true        // kept for your state; not required
                                 }
-                            }
+                            )
                         }
                     }
                     .padding(.horizontal)
@@ -155,7 +175,6 @@ private extension RootView {
 private extension RootView {
     func deleteOverlay(for entry: Entry) -> some View {
         ZStack {
-            // Dimmed background
             Color.black.opacity(0.4)
                 .ignoresSafeArea()
                 .onTapGesture {
@@ -163,20 +182,15 @@ private extension RootView {
                 }
 
             VStack(alignment: .leading, spacing: 18) {
-                // Title
                 Text("Delete Journal?")
                     .font(.headline.bold())
                     .foregroundColor(.white)
 
-                // Subtitle
                 Text("Are you sure you want to delete this journal?")
                     .font(.subheadline)
-                    .foregroundColor(Color("Gray"))
+                    .foregroundColor(.gray)
                     .multilineTextAlignment(.leading)
-                    .padding(.top, -7)
-                    .padding(.bottom,5)
 
-                // Buttons
                 HStack(spacing: 14) {
                     Button {
                         withAnimation { showDeleteAlert = false }
@@ -187,7 +201,7 @@ private extension RootView {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
                             .background(Color.gray.opacity(0.3))
-                            .cornerRadius(50)
+                            .cornerRadius(14)
                     }
 
                     Button {
@@ -199,15 +213,15 @@ private extension RootView {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(Color("Red"))
-                            .cornerRadius(50)
+                            .background(Color.red)
+                            .cornerRadius(14)
                     }
                 }
             }
-            .padding(25)
+            .padding(20)
             .frame(maxWidth: 320)
             .background(
-                RoundedRectangle(cornerRadius: 40, style: .continuous)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [
@@ -220,9 +234,8 @@ private extension RootView {
                     )
                     .background(Color.black.opacity(0.4).blur(radius: 8))
             )
-            // Soft highlight rim
             .overlay(
-                RoundedRectangle(cornerRadius: 40, style: .continuous)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .stroke(
                         LinearGradient(
                             colors: [
@@ -235,14 +248,11 @@ private extension RootView {
                         lineWidth: 0.8
                     )
             )
-            // Gentle shadow
             .shadow(color: .black.opacity(0.5), radius: 10, x: 0, y: 3)
             .transition(.scale)
         }
     }
 }
-
-
 
 // MARK: - Helper functions
 private extension RootView {
@@ -406,9 +416,11 @@ struct SwipeToDeleteRow: View {
     var entry: Entry
     var onToggleBookmark: () -> Void
     var onDelete: () -> Void
+    var onTap: () -> Void                 // ✅ NEW
 
     var body: some View {
         ZStack {
+            // Background delete button
             HStack {
                 Spacer()
                 Button(action: onDelete) {
@@ -427,7 +439,9 @@ struct SwipeToDeleteRow: View {
                 .animation(.easeInOut(duration: 0.2), value: offsetX)
             }
 
+            // Foreground row
             EntryRow(entry: entry, onToggleBookmark: onToggleBookmark)
+                .contentShape(Rectangle()) // full area tappable
                 .offset(x: offsetX + dragOffset)
                 .gesture(
                     DragGesture()
@@ -442,7 +456,10 @@ struct SwipeToDeleteRow: View {
                             }
                         }
                 )
-                .onTapGesture { withAnimation { offsetX = 0 } }
+                .onTapGesture {
+                    withAnimation { offsetX = 0 }
+                    onTap()               
+                }
         }
     }
 }
