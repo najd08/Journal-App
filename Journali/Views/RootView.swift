@@ -8,32 +8,9 @@
 import SwiftUI
 import SwiftData
 
-// MARK: - Main View
 struct RootView: View {
     @Environment(\.modelContext) private var context
-    @Query(sort: [SortDescriptor<Entry>(\.updatedAt, order: .reverse)]) private var entries: [Entry]
-    @State private var query: String = ""
-    @State private var filter: Filter = .all
-    @State private var showComposer = false
-    @State private var showDeleteAlert = false
-    @State private var entryToDelete: Entry?
-    @State private var entryToEdit: Entry?          // ✅ used by .sheet(item:)
-    @State private var showEditor = false           // kept for your state
-
-    enum Filter: String, CaseIterable, Identifiable {
-        case all, bookmarked
-        var id: Self { self }
-    }
-
-    private var filtered: [Entry] {
-        var base = entries
-        if filter == .bookmarked { base = base.filter { $0.isBookmarked } }
-        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let q = query.lowercased()
-            base = base.filter { $0.title.lowercased().contains(q) || $0.body.lowercased().contains(q) }
-        }
-        return base
-    }
+    @StateObject private var viewModel = RootViewModel()
 
     var body: some View {
         NavigationStack {
@@ -46,30 +23,28 @@ struct RootView: View {
                     searchBar
                 }
 
-                if let entry = entryToDelete, showDeleteAlert {
+                if let entry = viewModel.entryToDelete, viewModel.showDeleteAlert {
                     deleteOverlay(for: entry)
                 }
             }
-            .animation(.spring(), value: showDeleteAlert)
+            .animation(.spring(), value: viewModel.showDeleteAlert)
 
             // Create sheet
-            .sheet(isPresented: $showComposer) {
+            .sheet(isPresented: $viewModel.showComposer) {
                 EditorView(mode: .create) { title, body in
-                    let e = Entry(title: title, body: body)
-                    context.insert(e)
-                    try? context.save()
+                    viewModel.createEntry(title: title, body: body)
                 }
             }
 
-            // Edit sheet (reliable)
-            .sheet(item: $entryToEdit) { entry in
+            // Edit sheet
+            .sheet(item: $viewModel.entryToEdit) { entry in
                 EditorView(mode: .edit(entry)) { title, body in
-                    entry.title = title
-                    entry.body = body
-                    entry.updatedAt = .now
-                    try? context.save()
+                    viewModel.updateEntry(entry, title: title, body: body)
                 }
             }
+        }
+        .onAppear {
+            viewModel.setContext(context)   // inject ModelContext once the view appears
         }
     }
 }
@@ -85,15 +60,13 @@ private extension RootView {
             Spacer()
 
             HStack(spacing: 18) {
-                FilterToggle(filter: $filter)
+                FilterToggle(filter: $viewModel.filter)     // uses VM.Filter now
 
                 Rectangle()
                     .fill(Color.white.opacity(0.25))
                     .frame(width: 1, height: 20)
 
-                Button {
-                    showComposer = true
-                } label: {
+                Button { viewModel.showComposer = true } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
@@ -112,25 +85,24 @@ private extension RootView {
 private extension RootView {
     var contentView: some View {
         Group {
-            if filtered.isEmpty {
-                EmptyState(startAction: { showComposer = true })
+            if viewModel.filteredEntries.isEmpty {
+                EmptyState(startAction: { viewModel.showComposer = true })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 20) {
-                        ForEach(filtered) { entry in
+                        ForEach(viewModel.filteredEntries) { entry in
                             SwipeToDeleteRow(
                                 entry: entry,
-                                onToggleBookmark: { toggleBookmark(entry) },
+                                onToggleBookmark: { viewModel.toggleBookmark(entry) },
                                 onDelete: {
-                                    entryToDelete = entry
+                                    viewModel.entryToDelete = entry
                                     withAnimation(.spring()) {
-                                        showDeleteAlert = true
+                                        viewModel.showDeleteAlert = true
                                     }
                                 },
-                                onTap: {                      // ✅ tap comes from inside the row
-                                    entryToEdit = entry
-                                    showEditor = true        // kept for your state; not required
+                                onTap: {
+                                    viewModel.entryToEdit = entry
                                 }
                             )
                         }
@@ -151,11 +123,11 @@ private extension RootView {
                 .font(.system(size: 18, weight: .regular))
                 .foregroundStyle(.white.opacity(0.65))
 
-            TextField("Search", text: $query)
+            TextField("Search", text: $viewModel.query)
                 .foregroundStyle(.white)
                 .accentColor(.white.opacity(0.9))
                 .textInputAutocapitalization(.never)
-                .placeholder(when: query.isEmpty) {
+                .placeholder(when: viewModel.query.isEmpty) {
                     Text("Search").foregroundStyle(.white.opacity(0.55))
                 }
 
@@ -178,7 +150,7 @@ private extension RootView {
             Color.black.opacity(0.4)
                 .ignoresSafeArea()
                 .onTapGesture {
-                    withAnimation { showDeleteAlert = false }
+                    withAnimation { viewModel.showDeleteAlert = false }
                 }
 
             VStack(alignment: .leading, spacing: 18) {
@@ -193,7 +165,7 @@ private extension RootView {
 
                 HStack(spacing: 14) {
                     Button {
-                        withAnimation { showDeleteAlert = false }
+                        withAnimation { viewModel.showDeleteAlert = false }
                     } label: {
                         Text("Cancel")
                             .fontWeight(.semibold)
@@ -205,8 +177,8 @@ private extension RootView {
                     }
 
                     Button {
-                        withAnimation { showDeleteAlert = false }
-                        delete(entry)
+                        withAnimation { viewModel.showDeleteAlert = false }
+                        viewModel.deleteEntry(entry)
                     } label: {
                         Text("Delete")
                             .fontWeight(.semibold)
@@ -254,212 +226,9 @@ private extension RootView {
     }
 }
 
-// MARK: - Helper functions
-private extension RootView {
-    func delete(_ entry: Entry) {
-        withAnimation { context.delete(entry) }
-        try? context.save()
-    }
-
-    func toggleBookmark(_ entry: Entry) {
-        entry.isBookmarked.toggle()
-        entry.updatedAt = .now
-        try? context.save()
-    }
-}
-
 // MARK: - Preview
 #Preview {
     RootView()
         .modelContainer(for: Entry.self, inMemory: true)
         .preferredColorScheme(.dark)
-}
-
-// MARK: - Glass Capsule Modifier
-struct GlassCapsuleModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .background(
-                RoundedRectangle(cornerRadius: 25, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.08),
-                                Color.white.opacity(0.02)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .background(
-                        Color.black.opacity(0.4)
-                            .blur(radius: 8)
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 25, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.4),
-                                Color.white.opacity(0.1)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 0.8
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 25, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.25),
-                                .clear
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1.2
-                    )
-                    .blur(radius: 0.5)
-            )
-            .shadow(color: .black.opacity(0.6), radius: 10, x: 0, y: 2)
-            .overlay(
-                RoundedRectangle(cornerRadius: 25, style: .continuous)
-                    .stroke(Color.white.opacity(0.05), lineWidth: 0.5)
-                    .blur(radius: 0.8)
-            )
-    }
-}
-
-// MARK: - Glass Search Bar Modifier (Same as Capsule)
-struct GlassSearchBarModifier: ViewModifier {
-    private let r: CGFloat = 22
-
-    func body(content: Content) -> some View {
-        content
-            .background(
-                RoundedRectangle(cornerRadius: r, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.08),
-                                Color.white.opacity(0.02)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .background(
-                        Color.black.opacity(0.4)
-                            .blur(radius: 8)
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: r, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.4),
-                                Color.white.opacity(0.1)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 0.8
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: r, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.25),
-                                .clear
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1.2
-                    )
-                    .blur(radius: 0.5)
-            )
-            .shadow(color: .black.opacity(0.6), radius: 10, x: 0, y: 2)
-            .overlay(
-                RoundedRectangle(cornerRadius: r, style: .continuous)
-                    .stroke(Color.white.opacity(0.05), lineWidth: 0.5)
-                    .blur(radius: 0.8)
-            )
-    }
-}
-
-// MARK: - Placeholder Helper
-extension View {
-    @ViewBuilder func placeholder<Content: View>(
-        when shouldShow: Bool,
-        @ViewBuilder _ placeholder: () -> Content
-    ) -> some View {
-        ZStack(alignment: .leading) {
-            if shouldShow { placeholder() }
-            self
-        }
-    }
-}
-
-// MARK: - SwipeToDeleteRow
-struct SwipeToDeleteRow: View {
-    @State private var offsetX: CGFloat = 0
-    @GestureState private var dragOffset: CGFloat = 0
-
-    var entry: Entry
-    var onToggleBookmark: () -> Void
-    var onDelete: () -> Void
-    var onTap: () -> Void                 // ✅ NEW
-
-    var body: some View {
-        ZStack {
-            // Background delete button
-            HStack {
-                Spacer()
-                Button(action: onDelete) {
-                    ZStack {
-                        Circle()
-                            .fill(Color(.systemRed))
-                            .frame(width: 55, height: 55)
-                            .shadow(color: Color(.systemRed).opacity(0.4), radius: 6, x: 0, y: 3)
-                        Image(systemName: "trash.fill")
-                            .foregroundColor(.white)
-                            .font(.system(size: 20, weight: .bold))
-                    }
-                }
-                .offset(x: offsetX < 0 ? 0 : 80)
-                .opacity(offsetX < 0 ? 1 : 0)
-                .animation(.easeInOut(duration: 0.2), value: offsetX)
-            }
-
-            // Foreground row
-            EntryRow(entry: entry, onToggleBookmark: onToggleBookmark)
-                .contentShape(Rectangle()) // full area tappable
-                .offset(x: offsetX + dragOffset)
-                .gesture(
-                    DragGesture()
-                        .updating($dragOffset) { value, state, _ in
-                            if value.translation.width < 0 {
-                                state = value.translation.width
-                            }
-                        }
-                        .onEnded { value in
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                offsetX = value.translation.width < -80 ? -80 : 0
-                            }
-                        }
-                )
-                .onTapGesture {
-                    withAnimation { offsetX = 0 }
-                    onTap()               
-                }
-        }
-    }
 }

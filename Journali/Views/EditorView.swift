@@ -15,7 +15,6 @@ private struct GlassContainer: ViewModifier {
             .background(
                 RoundedRectangle(cornerRadius: corner, style: .continuous)
                     .fill(.ultraThinMaterial)
-                    // faint top-left sheen
                     .overlay(
                         RoundedRectangle(cornerRadius: corner)
                             .stroke(
@@ -26,7 +25,6 @@ private struct GlassContainer: ViewModifier {
                                 lineWidth: 0.6
                             )
                     )
-                    // soft inner shadow to give “depth”
                     .overlay(
                         RoundedRectangle(cornerRadius: corner)
                             .stroke(Color.black.opacity(0.45), lineWidth: 1.2)
@@ -34,12 +32,13 @@ private struct GlassContainer: ViewModifier {
                             .mask(
                                 RoundedRectangle(cornerRadius: corner)
                                     .fill(
-                                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                                        LinearGradient(colors: [.black, .clear],
+                                                       startPoint: .top,
+                                                       endPoint: .bottom)
                                     )
                             )
                     )
             )
-            // floating shadow
             .shadow(color: .black.opacity(0.55), radius: 14, x: 0, y: 8)
     }
 }
@@ -63,7 +62,11 @@ private struct GlassPill: ViewModifier {
                             .blur(radius: 2)
                             .mask(
                                 RoundedRectangle(cornerRadius: corner)
-                                    .fill(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
+                                    .fill(
+                                        LinearGradient(colors: [.black, .clear],
+                                                       startPoint: .top,
+                                                       endPoint: .bottom)
+                                    )
                             )
                     )
             )
@@ -78,28 +81,22 @@ struct EditorView: View {
     var onSave: (String, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var title: String = ""
-    @State private var bodyText: String = ""
-    @State private var showDiscardAlert = false
-    @State private var hasEdited = false
+    @StateObject private var viewModel: EditorViewModel
+
+    init(mode: Mode, onSave: @escaping (String, String) -> Void) {
+        self.mode = mode
+        self.onSave = onSave
+        _viewModel = StateObject(wrappedValue: EditorViewModel(mode: mode, onSave: onSave))
+    }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 16) {
-
                 // MARK: - Top Bar
                 HStack {
-                    Button {
-                        if hasEdited {
-                            withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
-                                showDiscardAlert = true
-                            }
-                        } else {
-                            dismiss()
-                        }
-                    } label: {
+                    Button(action: viewModel.handleDismiss) {
                         Image(systemName: "xmark")
                             .font(.system(size: 20, weight: .bold))
                             .foregroundColor(.white)
@@ -110,12 +107,7 @@ struct EditorView: View {
 
                     Spacer()
 
-                    Button {
-                        if !title.isEmpty {
-                            onSave(title, bodyText)
-                            dismiss()
-                        }
-                    } label: {
+                    Button(action: viewModel.saveIfValid) {
                         Image(systemName: "checkmark")
                             .font(.system(size: 20, weight: .bold))
                             .foregroundColor(.white)
@@ -129,11 +121,11 @@ struct EditorView: View {
 
                 // MARK: - Title
                 VStack(alignment: .leading, spacing: 8) {
-                    TextField("Title", text: $title)
+                    TextField("Title", text: $viewModel.title)
                         .font(.title2.bold())
                         .foregroundColor(.white)
                         .padding(.horizontal)
-                        .onChange(of: title) { _ in hasEdited = true }
+                        .onChange(of: viewModel.title) { _ in viewModel.hasEdited = true }
 
                     Text(Date.now.formatted(date: .numeric, time: .omitted))
                         .font(.subheadline)
@@ -142,17 +134,17 @@ struct EditorView: View {
                 }
 
                 // MARK: - Body
-                TextEditor(text: $bodyText)
+                TextEditor(text: $viewModel.bodyText)
                     .scrollContentBackground(.hidden)
                     .background(Color.clear)
                     .foregroundColor(.white)
                     .font(.body)
                     .frame(maxHeight: .infinity)
                     .padding(.horizontal)
-                    .onChange(of: bodyText) { _ in hasEdited = true }
+                    .onChange(of: viewModel.bodyText) { _ in viewModel.hasEdited = true }
                     .overlay(
                         Group {
-                            if bodyText.isEmpty {
+                            if viewModel.bodyText.isEmpty {
                                 Text("Type your Journal...")
                                     .foregroundColor(.gray)
                                     .padding(.horizontal, 20)
@@ -166,12 +158,12 @@ struct EditorView: View {
                 Spacer()
             }
 
-            // MARK: - Discard Glass Alert
-            if showDiscardAlert {
+            // MARK: - Discard Glass Alert (Confirmation Message)
+            if viewModel.showDiscardAlert {
                 ZStack {
                     Color.black.opacity(0.2)
                         .ignoresSafeArea()
-                        .onTapGesture { withAnimation { showDiscardAlert = false } }
+                        .onTapGesture { withAnimation { viewModel.showDiscardAlert = false } }
 
                     VStack(spacing: 18) {
                         Text("Are you sure you want to discard changes on this journal?")
@@ -184,7 +176,7 @@ struct EditorView: View {
 
                         VStack(spacing: 10) {
                             Button {
-                                dismiss()
+                                viewModel.discardChanges()
                             } label: {
                                 Text("Discard Changes")
                                     .font(.system(size: 17, weight: .semibold))
@@ -193,9 +185,7 @@ struct EditorView: View {
                             }
 
                             Button {
-                                withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
-                                    showDiscardAlert = false
-                                }
+                                viewModel.keepEditing()
                             } label: {
                                 Text("Keep Editing")
                                     .font(.system(size: 17, weight: .semibold))
@@ -210,23 +200,20 @@ struct EditorView: View {
                     .modifier(GlassContainer(corner: 35))
                     .transition(.scale.combined(with: .opacity))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .offset(x: 10, y: 19) // Adjust to match the exact placement you want
+                    .offset(x: 10, y: 19)
                 }
             }
-
         }
         .onAppear {
-            if case .edit(let entry) = mode {
-                title = entry.title
-                bodyText = entry.body
-            }
+            viewModel.setDismiss { dismiss() }
         }
-        .animation(.spring(response: 0.42, dampingFraction: 0.88), value: showDiscardAlert)
+        .animation(.spring(response: 0.42, dampingFraction: 0.88),
+                   value: viewModel.showDiscardAlert)
     }
 }
 
 // MARK: - Preview
 #Preview {
-    EditorView(mode: .edit(Entry(title: "New", body: "New tw"))) { _, _ in }
+    EditorView(mode: .edit(Entry(title: "New", body: "Example text"))) { _, _ in }
         .preferredColorScheme(.dark)
 }

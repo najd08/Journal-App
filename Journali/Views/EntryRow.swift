@@ -9,32 +9,33 @@ import SwiftUI
 import SwiftData
 
 struct EntryRow: View {
-    @Bindable var entry: Entry
-    var onToggleBookmark: (() -> Void)?   // ✅ callback to toggle from RootView
+    @StateObject private var viewModel: EntryRowViewModel
+    var onToggleBookmark: (() -> Void)?   // Optional callback from RootView
 
+    // MARK: - Init
+    init(entry: Entry, onToggleBookmark: (() -> Void)? = nil) {
+        _viewModel = StateObject(wrappedValue: EntryRowViewModel(entry: entry))
+        self.onToggleBookmark = onToggleBookmark
+    }
+
+    // MARK: - Body
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     // Title
-                    Text(entry.title)
+                    Text(viewModel.title)
                         .font(.headline.weight(.semibold))
                         .foregroundColor(Color("Purple"))
 
-                    // Date (formatted as 21/10/2025)
-                    Text(entry.updatedAt.formatted(
-                        Date.FormatStyle()
-                            .day(.twoDigits)
-                            .month(.twoDigits)
-                            .year(.defaultDigits)
-                            .locale(Locale(identifier: "en_GB"))
-                    ))
+                    // Date
+                    Text(viewModel.formattedDate)
                         .font(.caption)
                         .foregroundColor(.gray)
                         .padding(.top, -2)
 
                     // Body preview
-                    Text(entry.body)
+                    Text(viewModel.bodyPreview)
                         .font(.body)
                         .foregroundColor(Color("white"))
                         .padding(.top, 4)
@@ -42,11 +43,15 @@ struct EntryRow: View {
 
                 Spacer()
 
-                // ✅ Make bookmark icon tappable
+                // Bookmark button
                 Button {
-                    onToggleBookmark?()
+                    if let onToggleBookmark = onToggleBookmark {
+                        onToggleBookmark()
+                    } else {
+                        viewModel.toggleBookmark()
+                    }
                 } label: {
-                    Image(systemName: entry.isBookmarked ? "bookmark.fill" : "bookmark")
+                    Image(systemName: viewModel.isBookmarked ? "bookmark.fill" : "bookmark")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(Color("Purple"))
                         .padding(.top, 4)
@@ -67,6 +72,7 @@ struct EntryRow: View {
     }
 }
 
+// MARK: - Preview
 #Preview {
     EntryRow(entry: Entry(title: "My Birthday", body: "Lorem ipsum dolor sit amet.")) { }
         .preferredColorScheme(.dark)

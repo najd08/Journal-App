@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct FilterToggle: View {
-    @Binding var filter: RootView.Filter
+    @Binding var filter: RootViewModel.Filter   
 
     var body: some View {
         Menu {
