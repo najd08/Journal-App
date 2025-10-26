@@ -29,7 +29,8 @@ It lets you write, organize, and reflect on your daily thoughts in a private and
 
 3. **Entry Management**  
    - Tap ➕ to create a new journal entry.  
-   - Swipe left to delete, swipe right to bookmark/unbookmark.  
+   - Swipe left to delete an entry.
+   - Tap the bookmark icon to mark or unmark your favorite journals.  
    - Tap an entry to edit it in the composer view.
 
 ---
